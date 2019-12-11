@@ -4,6 +4,7 @@ logLevel := Level.Debug
 val fs2Version = "2.1.0"
 val catsVersion = "2.0.0"
 val catsEffectVersion = "2.0.0"
+val scalatestVersion = "3.0.8"
 
 lazy val modules: List[ProjectReference] = List(
   core
@@ -24,7 +25,11 @@ lazy val scodecDependencies = Seq(
   "org.scodec" %% "scodec-stream" % "2.0.0"
 )
 
-lazy val commonDependencies = catsDependencies ++ fs2Dependencies ++ scodecDependencies
+lazy val unitTestDependencies = Seq(
+  "org.scalatest" %% "scalatest" % scalatestVersion % Test
+)
+
+lazy val commonDependencies = catsDependencies ++ fs2Dependencies ++ scodecDependencies ++ unitTestDependencies
 
 lazy val commonSettings = commonBuildSettings ++ Seq(
   organization := "org.ssh4s",

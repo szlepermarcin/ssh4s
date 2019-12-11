@@ -122,7 +122,8 @@ package object transport {
         state <- ask[F]
         writeCtx <- writeCodecCtx
         _ <- liftF {
-          Stream(Disconnect(ProtocolError, "encryption error", "")).through(state.socketService.writes(writeCtx.map[Encoder[Disconnect]](_.wrap(Disconnect.codec))))
+          Stream(Disconnect(ProtocolError, "encryption error", ""))
+            .through(state.socketService.writes(writeCtx.map[Encoder[Disconnect]](_.wrap(Disconnect.codec))))
             .compile.drain
         }
         _ <- modify[F](_.copy(break = true))
@@ -133,7 +134,8 @@ package object transport {
         state <- ask[F]
         writeCtx <- writeCodecCtx
         _ <- liftF {
-          Stream(Disconnect(Disconnect.CompressionError, "compression error", "")).through(state.socketService.writes(writeCtx.map[Encoder[Disconnect]](_.wrap(Disconnect.codec))))
+          Stream(Disconnect(Disconnect.CompressionError, "compression error", ""))
+            .through(state.socketService.writes(writeCtx.map[Encoder[Disconnect]](_.wrap(Disconnect.codec))))
             .compile.drain
         }
         _ <- modify[F](_.copy(break = true))
@@ -144,7 +146,8 @@ package object transport {
         state <- ask[F]
         writeCtx <- writeCodecCtx
         _ <- liftF {
-          Stream(Disconnect(Disconnect.MacError, "verify mac error", "")).through(state.socketService.writes(writeCtx.map[Encoder[Disconnect]](_.wrap(Disconnect.codec))))
+          Stream(Disconnect(Disconnect.MacError, "verify mac error", ""))
+            .through(state.socketService.writes(writeCtx.map[Encoder[Disconnect]](_.wrap(Disconnect.codec))))
             .compile.drain
         }
         _ <- modify[F](_.copy(break = true))
