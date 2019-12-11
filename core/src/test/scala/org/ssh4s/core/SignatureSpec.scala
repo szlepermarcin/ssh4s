@@ -1,18 +1,11 @@
 package org.ssh4s.core
 
-import cats.Id
-import org.scalatest.{FlatSpec, Matchers}
+import scodec.Attempt
 import scodec.bits.BitVector
 
-class SignatureSpec extends FlatSpec with Matchers {
+class SignatureSpec extends BaseSpec {
   private val message = "Test Message"
-  private val codec = scodec.codecs.fixedSizeBytes(message.length.toLong, scodec.codecs.utf8)
-  private val hmacSha1Key = Array[Byte](
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-  )
-  private val hmacMd5Key = Array[Byte](
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-  )
+  private val msgCodec = scodec.codecs.fixedSizeBytes(message.length.toLong, scodec.codecs.utf8)
 
   private val hmacSha1SignedMessage =
     BitVector(
@@ -32,46 +25,30 @@ class SignatureSpec extends FlatSpec with Matchers {
 
 
   "signature algorithm" should "sign and encode message for hmacSha1" in {
-    val sequence = 1L
+    val result = sh1SignatureTestCtx.wrap(msgCodec).encode(message)
 
-    val generator = transport.SupportedAlgorithms.hmacSha1[Id]
-
-    val result = generator.codecCtx(sequence, hmacSha1Key).wrap(codec).encode(message).toEither
-
-    result shouldEqual Right(hmacSha1SignedMessage)
+    result shouldEqual Attempt.Successful(hmacSha1SignedMessage)
 
   }
 
   "signature algorithm" should "sign and encode message for hmacMD5" in {
-    val sequence = 1L
+    val result = md5SignatureTestCtx.wrap(msgCodec).encode(message)
 
-    val generator = transport.SupportedAlgorithms.hmacMD5[Id]
-
-    val result = generator.codecCtx(sequence, hmacMd5Key).wrap(codec).encode(message).toEither
-
-    result shouldEqual Right(hmacMd5SignedMessage)
+    result shouldEqual Attempt.Successful(hmacMd5SignedMessage)
 
   }
 
   "signature algorithm" should "decode message for hmacSha1" in {
-    val sequence = 1L
+    val result = sh1SignatureTestCtx.wrap(msgCodec).decodeValue(hmacSha1SignedMessage)
 
-    val generator = transport.SupportedAlgorithms.hmacSha1[Id]
-
-    val result = generator.codecCtx(sequence, hmacSha1Key).wrap(codec).decodeValue(hmacSha1SignedMessage).toEither
-
-    result shouldEqual Right(message)
+    result shouldEqual Attempt.Successful(message)
 
   }
 
   "signature algorithm" should "decode message for hmacMD5" in {
-    val sequence = 1L
+    val result = md5SignatureTestCtx.wrap(msgCodec).decodeValue(hmacMd5SignedMessage)
 
-    val generator = transport.SupportedAlgorithms.hmacMD5[Id]
-
-    val result = generator.codecCtx(sequence, hmacMd5Key).wrap(codec).decodeValue(hmacMd5SignedMessage).toEither
-
-    result shouldEqual Right(message)
+    result shouldEqual Attempt.Successful(message)
 
   }
 }

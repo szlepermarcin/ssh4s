@@ -25,7 +25,7 @@ final case class CodecCtx(macCtx: MacCtx = noneMacCtx,
                 case e: SimpleError => e
                 case e => DecodeError.compressionError(e)
               }
-            _ <- ignore(paddingSize.longValue())
+            _ <- ignore(paddingSize.longValue() * 8)
           } yield payload
 
           val paddingMlt: Int = Seq(8, encryptionCtx.cipherBlockSize).max
