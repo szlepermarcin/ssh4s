@@ -24,10 +24,10 @@ trait SocketService[F[_]] {
   protected val writeByteCounter: Ref[F, Long]
   protected val writeSequence: Ref[F, Long]
 
-  def currentReadSequence(implicit F: Monad[F]): F[Long] =
+  def currentReadSequence: F[Long] =
     readCounterLock.withPermit(readSequence.get)
 
-  def currentWriteSequence(implicit F: Monad[F]): F[Long] =
+  def currentWriteSequence: F[Long] =
     writeCounterLock.withPermit(writeSequence.get)
 
 

@@ -1,7 +1,7 @@
 package org.ssh4s.core.transport.messages
 
 import cats.Show
-import org.ssh4s.core.transport.SshMsgCodecCase
+import org.ssh4s.core.transport.{BytesGenerator, SshMsgCodecCase}
 import org.ssh4s.core.transport.messages.SshMsg._
 import scodec.Codec
 import scodec.codecs._
@@ -24,9 +24,9 @@ final case class KexInit(kexAlgs: List[String],
 object KexInit {
   val code = 20
 
-  val codec: Codec[KexInit] =
+  def codec(implicit rbg: BytesGenerator): Codec[KexInit] =
     (("code" | uint8.unit(code)) ::
-      ("cookie" | ignore(16 * 8L)) ::
+      ("cookie" | cookieCodec) ::
       ("kex_algorithms" | nameListCodec) ::
       ("server_host_key_algorithms" | nameListCodec) ::
       ("encryption_algorithms_client_to_server" | nameListCodec) ::
@@ -65,7 +65,7 @@ object KexInit {
        | first_kex_packet_follows: ${t.firstKexPacketFollows}
        |""".stripMargin
 
-  implicit val codecCase: SshMsgCodecCase[KexInit] = new SshMsgCodecCase[KexInit] {
+  implicit def codecCase(implicit randomBytesGenerator: BytesGenerator): SshMsgCodecCase[KexInit] = new SshMsgCodecCase[KexInit] {
     override val wrap: DiscriminatorCodec[SshMsg, Int] => DiscriminatorCodec[SshMsg, Int] = _.typecase(code, codec)
   }
 }

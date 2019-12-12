@@ -1,10 +1,12 @@
 package org.ssh4s.core.transport
 
+import org.ssh4s.core.transport.algorithms.SupportedAlgorithms
+
 final case class TransportState[F[_]](socketService: SocketService[F],
-                                      supportedAlgorithms: SupportedAlgorithms[F],
+                                      supportedAlgorithms: SupportedAlgorithms,
                                       handler: MsgHandler[TransportT[F, Unit]],
-                                      readAlgorithms: AlgorithmState[F],
-                                      writeAlgorithms: AlgorithmState[F],
+                                      readAlgorithms: AlgorithmState,
+                                      writeAlgorithms: AlgorithmState,
                                       payload: Option[Array[Byte]],
                                       break: Boolean
                                      )

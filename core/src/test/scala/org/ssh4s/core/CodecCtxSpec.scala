@@ -1,69 +1,53 @@
 package org.ssh4s.core
 
-import org.ssh4s.core.transport.DecodeError.SignatureError
-import org.ssh4s.core.transport.MsgHandler
-import org.ssh4s.core.transport.messages.Debug
+import cats.syntax.option._
+import org.ssh4s.core.transport.algorithms.compression.CompressionAlg
+import org.ssh4s.core.transport.algorithms.encryption.EncryptionAlg
+import org.ssh4s.core.transport.algorithms.signature.SignatureAlg
+import org.ssh4s.core.transport.algorithms.{SupportedAlgorithms => Algs}
+import org.ssh4s.core.transport.messages.KexInit
+import org.ssh4s.core.transport.{BytesGenerator, CodecCtx, MsgHandler, algorithms}
 import scodec.Attempt
 import scodec.bits.BitVector
 
 class CodecCtxSpec extends BaseSpec {
 
-  private val handler = MsgHandler[Debug, Unit]{ _ => () }
-  private val testMsg: Debug = Debug(alwaysDisplay = false, "test debug message", "")
-
-  private val encodedForBase = BitVector(
-    0, 0, 0, 36, 7, 4, 0, 0,
-    0, 0, 18, 116, 101, 115, 116, 32,
-    100, 101, 98, 117, 103, 32, 109, 101,
-    115, 115, 97, 103, 101, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0
-  )
-
-  private val encodedForSignatureOnly = BitVector(
-    0, 0, 0, 36, 7, 4, 0, 0,
-    0, 0, 18, 116, 101, 115, 116, 32,
-    100, 101, 98, 117, 103, 32, 109, 101,
-    115, 115, 97, 103, 101, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0,
-    -115, 126, -87, 114, -63, -64, 20, -118,
-    33, -106, -44, 55, -110, -54, -103, 22
-  )
-
-  private val encodedWithWrongSignature = BitVector(
-    0, 0, 0, 36, 7, 4, 0, 0,
-    0, 0, 18, 116, 101, 115, 116, 32,
-    100, 101, 98, 117, 103, 32, 109, 101,
-    115, 115, 97, 103, 101, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0
-  )
+  implicit val bg: BytesGenerator = BytesGenerator.fill(0)
+  private val handler = MsgHandler[KexInit, Unit] { _ => () }
+  private val testMsg: KexInit = transport.buildKexInit(Algs())
+  val testMsgSequence: Long = 1
+  val testSignatureKey: Array[Byte] = BytesGenerator.fill(1).getBytes(28).toArray
+  val testEncryptionKey: Array[Byte] = BytesGenerator.fill(1).getBytes(32).toArray
+  val testEncryptionIv: Array[Byte] = BytesGenerator.fill(1).getBytes(16).toArray
 
 
-  "codec ctx" should "encode msg with none encryption, none signature and none compression" in {
-    val encodeResult = baseCodecCtx.wrap(handler.codec).encode(testMsg)
-    encodeResult shouldBe Attempt.Successful(encodedForBase)
+  case class TestCase(compressionAlg: Option[CompressionAlg],
+                      signatureAlg: Option[SignatureAlg],
+                      encryptionAlg: Option[EncryptionAlg]) {
+    val compressionName: String = compressionAlg.map(_.name).getOrElse("none")
+    val signatureName: String = signatureAlg.map(_.name).getOrElse("none")
+    val encryptionName: String = encryptionAlg.map(_.name).getOrElse("none")
+    val names: String = Seq(compressionName, signatureName, encryptionName).mkString(", ")
   }
 
-  "codec ctx" should "decode msg with none encryption, none signature and none compression" in {
-    val encodeResult = baseCodecCtx.wrap(handler.codec).decodeValue(encodedForBase)
-    encodeResult shouldBe Attempt.Successful(testMsg)
-  }
+  for {
+    ca <- None :: algorithms.compressionAlgorithms.filter(_.name != "none").map(_.some)
+    sa <- None :: algorithms.signatureAlgorithms.filter(_.name != "none").map(_.some)
+    ea <- None :: algorithms.encryptionAlgorithms.filter(_.name != "none").map(_.some)
+    tc = TestCase(ca, sa, ea)
+  } {
+    val compressionCtx = tc.compressionAlg.map(_.codecCtx).getOrElse(CodecCtx.noneCompressionCtx)
+    val signatureCtx = tc.signatureAlg.map(_.codecCtx(testMsgSequence, testSignatureKey)).getOrElse(CodecCtx.noneMacCtx)
+    val encryptionCtx = tc.encryptionAlg.map(_.codecCtx(testEncryptionKey, testEncryptionIv)).getOrElse(CodecCtx.noneEncryptionCtx)
 
-  "codec ctx" should "encode msg with none provided signature, none encryption and compression" in {
-    val encodeResult = baseCodecCtx.withMac(md5SignatureTestCtx).wrap(handler.codec).encode(testMsg)
-    encodeResult shouldBe Attempt.Successful(encodedForSignatureOnly)
-  }
+    val ctx = CodecCtx().withCompression(compressionCtx).withMac(signatureCtx).withEncryption(encryptionCtx)
+    val codec = ctx.wrap(handler.codec)
 
-  "codec ctx" should "decode msg with provided signature, none encryption and none compression" in {
-    val encodeResult = baseCodecCtx.withMac(md5SignatureTestCtx).wrap(handler.codec).decodeValue(encodedForSignatureOnly)
-
-    encodeResult shouldBe Attempt.Successful(testMsg)
-  }
-
-  "codec ctx" should "not decode msg and return signature error for msg with wrong signature" in {
-    val encodeResult = baseCodecCtx.withMac(md5SignatureTestCtx).wrap(handler.codec).decodeValue(encodedWithWrongSignature)
-
-    encodeResult should matchPattern { case Attempt.Failure(SignatureError(_)) => }
+    s"codec context [${tc.names}]" should "encode and decode message" in {
+      val encoded = codec.encode(testMsg)
+      encoded should matchPattern {case Attempt.Successful(_: BitVector) => }
+      val decoded = codec.decodeValue(encoded.getOrElse(BitVector.empty))
+      decoded shouldBe Attempt.Successful(testMsg)
+    }
   }
 }

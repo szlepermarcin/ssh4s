@@ -2,6 +2,7 @@ package org.ssh4s.core
 
 import cats.data.{Reader, StateT}
 import cats.effect.Concurrent
+import cats.kernel.Semigroup
 import org.ssh4s.core.transport.CodecCase.CodecCaseSyntax
 import org.ssh4s.core.transport.DecodeError.{CompressionError, EncryptionError, SignatureError, SimpleError}
 import org.ssh4s.core.transport.DecodedWithRaw.DecodedWithRawSyntax
@@ -9,8 +10,10 @@ import org.ssh4s.core.transport.messages.Disconnect.ProtocolError
 import org.ssh4s.core.transport.messages._
 import cats.syntax.applicativeError._
 import cats.syntax.foldable._
-import cats.{Applicative, ApplicativeError}
+import cats.{Applicative, ApplicativeError, Contravariant}
 import fs2.Stream
+import org.ssh4s.core.transport.algorithms
+import org.ssh4s.core.transport.algorithms.SupportedAlgorithms
 import scodec.stream.CodecError
 import scodec.{Decoder, Encoder}
 
@@ -44,7 +47,7 @@ package object transport {
   def info[F[_]: Applicative](msg: String): TransportT[F, Unit] = pure(println(s"[INFO] $msg"))
   def error[F[_]: Applicative](msg: String): TransportT[F, Unit] = pure(println(s"[ERROR] $msg"))
 
-  def readCodecCtx[F[_]: Concurrent]: TransportT[F, Reader[Long,CodecCtx]] =
+  def readCodecCtx[F[_]: Concurrent](implicit rbg: BytesGenerator): TransportT[F, Reader[Long,CodecCtx]] =
     for {
       state <- ask[F]
       ctx <- pure {
@@ -57,12 +60,18 @@ package object transport {
               } yield c.withMac(macAlg.codecCtx(seq, macKey))).getOrElse(c)
             )
           )
-          .map(c => state.readAlgorithms.encryptionAlgorithm.map(a => c.withEncryption(a.codecCtx)).getOrElse(c))
+          .map(c =>
+            (for {
+              encAlg <- state.readAlgorithms.encryptionAlgorithm
+              encKey <- state.readAlgorithms.encryptionKey
+              encIv <- state.readAlgorithms.encryptionIv
+            } yield c.withEncryption(encAlg.codecCtx(encKey, encIv))).getOrElse(c)
+          )
           .map(c => state.readAlgorithms.compressionAlgorithm.map(a => c.withCompression(a.codecCtx)).getOrElse(c))
       }
     } yield ctx
 
-  def writeCodecCtx[F[_]: Concurrent]: TransportT[F, Reader[Long, CodecCtx]] =
+  def writeCodecCtx[F[_]: Concurrent](implicit randomBytesGenerator: BytesGenerator): TransportT[F, Reader[Long, CodecCtx]] =
     for {
       state <- ask[F]
       ctx <- pure {
@@ -75,7 +84,13 @@ package object transport {
               } yield c.withMac(macAlg.codecCtx(seq, macKey))).getOrElse(c)
             )
           )
-          .map(c => state.writeAlgorithms.encryptionAlgorithm.map(a => c.withEncryption(a.codecCtx)).getOrElse(c))
+          .map(c =>
+            (for {
+              encAlg <- state.writeAlgorithms.encryptionAlgorithm
+              encKey <- state.writeAlgorithms.encryptionKey
+              encIv <- state.writeAlgorithms.encryptionIv
+            } yield c.withEncryption(encAlg.codecCtx(encKey, encIv))).getOrElse(c)
+          )
           .map(c => state.writeAlgorithms.compressionAlgorithm.map(a => c.withCompression(a.codecCtx)).getOrElse(c))
       }
 
@@ -83,13 +98,43 @@ package object transport {
 
   // Key Exchange
 
+
+
+  def buildKexInit[F[_]](algorithms: SupportedAlgorithms): KexInit =
+    KexInit(
+      algorithms.kexAlgorithms.map(_.name),
+      algorithms.serverKeyAlgorithms.map(_.name),
+      algorithms.encryptionClientToServerAlgorithms.map(_.name),
+      algorithms.encryptionServerToClientAlgorithms.map(_.name),
+      algorithms.signatureClientToServerAlgorithms.map(_.name),
+      algorithms.signatureServerToClientAlgorithms.map(_.name),
+      algorithms.compressionClientToServerAlgorithms.map(_.name),
+      algorithms.compressionServerToClientAlgorithms.map(_.name),
+      Nil,
+      Nil,
+      firstKexPacketFollows = false
+    )
+
+  def buildSupportedAlgorithms(kexInit: KexInit): SupportedAlgorithms =
+    SupportedAlgorithms(
+      kexInit.kexAlgs.flatMap(alg => algorithms.kexAlgorithms.find(_.name == alg)),
+      kexInit.serverKeyAlgs.flatMap(alg => algorithms.serverKeyAlgorithms.find(_.name == alg)),
+      kexInit.encAlgC2S.flatMap(alg => algorithms.encryptionAlgorithms.find(_.name == alg)),
+      kexInit.encAlgS2C.flatMap(alg => algorithms.encryptionAlgorithms.find(_.name == alg)),
+      kexInit.macAlgC2S.flatMap(alg => algorithms.signatureAlgorithms.find(_.name == alg)),
+      kexInit.macAlgS2C.flatMap(alg => algorithms.signatureAlgorithms.find(_.name == alg)),
+      kexInit.compAlgC2S.flatMap(alg => algorithms.compressionAlgorithms.find(_.name == alg)),
+      kexInit.compAlgS2C.flatMap(alg => algorithms.compressionAlgorithms.find(_.name == alg))
+    )
+
+
   def generateKexInit[F[_]: Applicative]: TransportT[F, KexInit] =
     for {
       state <- ask[F]
-      kexInitMsg = SupportedAlgorithms.buildKexInit(state.supportedAlgorithms)
+      kexInitMsg = buildKexInit(state.supportedAlgorithms)
     } yield kexInitMsg
 
-  def sendNewKeys[F[_]: Concurrent]: TransportT[F, Unit] =
+  def sendNewKeys[F[_]: Concurrent](implicit rbg: BytesGenerator): TransportT[F, Unit] =
     for {
       state <- ask[F]
       writeCtx <- writeCodecCtx
@@ -103,7 +148,7 @@ package object transport {
   // TODO accept key exchange and start using new keys
   def commitKeys[F[_]: Applicative]: TransportT[F, Unit] = pure(())
 
-  def handleReadError[F[_]: Concurrent]: PartialFunction[Throwable, TransportT[F, Unit]] = {
+  def handleReadError[F[_]: Concurrent](implicit rbg: BytesGenerator): PartialFunction[Throwable, TransportT[F, Unit]] = {
     case CodecError(err: SimpleError) =>
       for {
         _ <- error[F](s"unrecognized msg - $err")
@@ -190,7 +235,7 @@ package object transport {
     (disconnectHandler[F] :: ignoreHandler[F] :: unimplementedHandler[F] :: debugHandler[F] :: Nil).combineAll
   }
 
-  def readLoop[F[_]](implicit F: Concurrent[F]): TransportT[F, Unit] =
+  def readLoop[F[_]](implicit F: Concurrent[F], rbg: BytesGenerator): TransportT[F, Unit] =
     for {
       state <- ask[F]
       _ <- if (state.break) {

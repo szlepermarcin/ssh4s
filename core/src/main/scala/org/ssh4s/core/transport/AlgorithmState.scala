@@ -1,15 +1,17 @@
 package org.ssh4s.core.transport
 
-import org.ssh4s.core.Algorithms.{CompressionAlg, EncryptionAlg, SignatureAlg}
+import org.ssh4s.core.transport.algorithms.compression.CompressionAlg
+import org.ssh4s.core.transport.algorithms.encryption.EncryptionAlg
+import org.ssh4s.core.transport.algorithms.signature.SignatureAlg
 
-case class AlgorithmState[F[_]](macAlgorithm: Option[SignatureAlg[F]] = None,
+final case class AlgorithmState(macAlgorithm: Option[SignatureAlg] = None,
                                 macKey: Option[Array[Byte]],
-                                encryptionAlgorithm: Option[EncryptionAlg[F]] = None,
+                                encryptionAlgorithm: Option[EncryptionAlg] = None,
                                 encryptionIv: Option[Array[Byte]],
                                 encryptionKey: Option[Array[Byte]],
-                                compressionAlgorithm: Option[CompressionAlg[F]] = None
+                                compressionAlgorithm: Option[CompressionAlg] = None
                                ) {
-  def withMac(signatureAlg: SignatureAlg[F]): AlgorithmState[F] = this.copy(macAlgorithm = Some(signatureAlg))
-  def withEncryption(encryptionAlg: EncryptionAlg[F]): AlgorithmState[F] = this.copy(encryptionAlgorithm = Some(encryptionAlg))
-  def withCompression(compressionAlg: CompressionAlg[F]): AlgorithmState[F] = this.copy(compressionAlgorithm = Some(compressionAlg))
+  def withMac(signatureAlg: SignatureAlg): AlgorithmState = this.copy(macAlgorithm = Some(signatureAlg))
+  def withEncryption(encryptionAlg: EncryptionAlg): AlgorithmState = this.copy(encryptionAlgorithm = Some(encryptionAlg))
+  def withCompression(compressionAlg: CompressionAlg): AlgorithmState = this.copy(compressionAlgorithm = Some(compressionAlg))
 }

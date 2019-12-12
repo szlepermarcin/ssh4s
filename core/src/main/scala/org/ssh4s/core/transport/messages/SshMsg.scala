@@ -1,8 +1,11 @@
 package org.ssh4s.core.transport.messages
 
-import scodec.Codec
+import org.ssh4s.core.transport.BytesGenerator
+import scodec.{Attempt, Codec, DecodeResult, SizeBound}
 import scodec.bits.{BitVector, ByteVector}
 import scodec.codecs._
+
+import scala.util.Try
 
 trait SshMsg
 object SshMsg {
@@ -14,12 +17,15 @@ object SshMsg {
 
   val msgTypeCodec: Codec[Byte] = byte(1)
 
-  val cookieCodec: Codec[ByteVector] = bytes(16)
-
   val utfStringCodec: Codec[String] = variableSizeBytesLong(uint32, utf8)
 
-  val asciiStringCodec: Codec[String] = variableSizeBytesLong(uint32, ascii)
+  def cookieCodec(implicit rbg: BytesGenerator): Codec[Unit] = new Codec[Unit] {
 
-  trait MsgTransportError
+    override def encode(value: Unit): Attempt[BitVector] = Attempt.fromTry(Try(rbg.getBytes(16).bits))
+
+    override def sizeBound: SizeBound = SizeBound.exact(16 * 8L)
+
+    override def decode(bits: BitVector): Attempt[DecodeResult[Unit]] = ignore(16 * 8L).decode(bits)
+  }
 
 }
